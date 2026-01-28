@@ -56,6 +56,25 @@ impl Args {
     }
 }
 
+/// Check if a reset value string has an errant `0x` prefix (a common TI XML bug
+/// where e.g. `0x32767` was meant as decimal `32767`). Returns the corrected
+/// decimal value if the decimal interpretation fits in the field.
+fn fix_errant_hex_prefix(val_str: &str, reg_width: u32, end_int: u32) -> Option<u64> {
+    if !val_str.starts_with("0x") && !val_str.starts_with("0X") {
+        return None;
+    }
+    let hex_str = &val_str[2..];
+    if !hex_str.chars().all(|c| c.is_ascii_digit()) {
+        return None;
+    }
+    let dec_val = u64::from_str(hex_str).ok()?;
+    let dec_overflow = dec_val >> (reg_width - end_int);
+    if dec_overflow != 0 {
+        return None;
+    }
+    Some(dec_val)
+}
+
 fn get_name_from_description(description: &str) -> String {
     let replaces = [
         (',', '_'),
@@ -921,6 +940,7 @@ where
                         let mut f_rwaccess: Option<String> = None;
                         let mut f_description: Option<String> = None;
                         let mut f_reset_value: Option<u64> = None;
+                        let mut f_resetval_str: Option<String> = None;
 
                         for attr in attributes {
                             let xml::attribute::OwnedAttribute { name, value } = attr;
@@ -970,17 +990,13 @@ where
                                     }
                                 }
                                 "resetval" => {
-                                    let resetval: Result<u64, std::num::ParseIntError>;
-                                    if value.starts_with("0x") {
-                                        resetval = u64::from_str_radix(&value[2..], 16);
-                                    } else {
-                                        resetval = u64::from_str(&value);
-                                    }
-                                    f_reset_value = match resetval {
-                                        Ok(x) => Some(x),
-                                        Err(_e) => None,
-                                    };
-                                    //f_reset_value = Some(resetval.unwrap());
+                                    f_resetval_str = Some(value.clone());
+                                    f_reset_value =
+                                        if value.starts_with("0x") || value.starts_with("0X") {
+                                            u64::from_str_radix(&value[2..], 16).ok()
+                                        } else {
+                                            u64::from_str(&value).ok()
+                                        };
                                 }
                                 unknown => {
                                     if args.verbose > 0 {
@@ -999,7 +1015,7 @@ where
                                 f_width = Some(begin_int - end_int + 1)
                             }
 
-                            if let Some(reset_value) = f_reset_value {
+                            if let Some(mut reset_value) = f_reset_value {
                                 let reg_width: u32 = register_width.unwrap_or(32);
 
                                 if let Some(width_int) = f_width {
@@ -1009,7 +1025,23 @@ where
                                 }
 
                                 if end_int < reg_width {
-                                    let overflow = reset_value >> (reg_width - end_int);
+                                    let mut overflow = reset_value >> (reg_width - end_int);
+
+                                    if overflow != 0 {
+                                        if let Some(ref val_str) = f_resetval_str {
+                                            if let Some(dec_val) = fix_errant_hex_prefix(val_str, reg_width, end_int) {
+                                                if !args.silent {
+                                                    eprintln!(
+                                                        "Resetval '{}' (hex {}) overflows field, using decimal {} instead",
+                                                        val_str, reset_value, dec_val
+                                                    );
+                                                }
+                                                reset_value = dec_val;
+                                                overflow = 0;
+                                            }
+                                        }
+                                    }
+
                                     if overflow == 0 {
                                         let shifted_reset_value = reset_value << end_int;
                                         if let Some(rrv) = register_reset_value {
