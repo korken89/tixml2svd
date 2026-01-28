@@ -4,7 +4,7 @@
 /// and peripheral descriptor files.
 extern crate xml;
 
-use std::collections::HashSet;
+use std::collections::{HashMap, HashSet};
 use xml::writer;
 use xml::writer::EmitterConfig;
 
@@ -192,6 +192,27 @@ where
     write_content(args, xml_out, content)?;
     write_end(args, xml_out)?;
     Ok(())
+}
+
+fn write_start_with_attr<O>(
+    args: &Args,
+    xml_out: &mut xml::EventWriter<&mut O>,
+    name: &str,
+    attrs: &[(&str, &str)],
+) -> io::Result<()>
+where
+    O: io::Write,
+{
+    let mut element = writer::XmlEvent::start_element(name);
+    for (key, value) in attrs {
+        element = element.attr(*key, *value);
+    }
+    if args.verbose > 2 {
+        eprintln!("Writing start-tag with attrs: {:?}", name);
+    }
+    xml_out
+        .write(element)
+        .map_err(|e| io::Error::new(io::ErrorKind::Other, e.to_string()))
 }
 
 /// Used by process_device_base to open each peripheral file and
@@ -390,6 +411,8 @@ where
     let mut cpunum = 0;
     let mut endianness: Option<String> = None;
     let mut device_attributes: Vec<OwnedAttribute> = vec![];
+    // Track which module hrefs have been processed and map to their first peripheral name
+    let mut module_to_peripheral: HashMap<String, String> = HashMap::new();
 
     for e in parser {
         match e {
@@ -528,6 +551,36 @@ where
                                         printed_peripherals_tag = true;
                                     }
 
+                                    // Check if this module href has been seen before
+                                    if let Some(ref href) = f_href {
+                                        if let Some(first_peripheral) =
+                                            module_to_peripheral.get(href)
+                                        {
+                                            // Use derivedFrom - write minimal peripheral
+                                            write_start_with_attr(
+                                                args,
+                                                &mut xml_out,
+                                                "peripheral",
+                                                &[("derivedFrom", first_peripheral)],
+                                            )?;
+                                            write_tag(args, &mut xml_out, "name", &id)?;
+                                            if let Some(ref baseaddr) = f_baseaddr {
+                                                write_tag(
+                                                    args,
+                                                    &mut xml_out,
+                                                    "baseAddress",
+                                                    baseaddr,
+                                                )?;
+                                            }
+                                            write_end(args, &mut xml_out)?;
+                                            continue;
+                                        } else {
+                                            // First time seeing this module - record it
+                                            module_to_peripheral.insert(href.clone(), id.clone());
+                                        }
+                                    }
+
+                                    // Write full peripheral definition
                                     write_start(args, &mut xml_out, "peripheral")?;
                                     write_tag(args, &mut xml_out, "name", &id)?;
 
