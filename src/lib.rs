@@ -100,6 +100,16 @@ where
         "R/W" => "read-write",
         "R/W1TC" => "read-write",
         "R/W1TS" => "read-write",
+        "W1TC" => "write-only",
+        "W1TS" => "write-only",
+        "R/W1C" => "read-write",
+        "R/WD" => "read-write",
+        "R/WI" => "read-write",
+        "R/W0TC" => "read-write",
+        "R/WTC" => "read-write",
+        "R/WTD" => "read-write",
+        "R/R/WONCE" => "read-writeOnce",
+        "NU1" | "NU2" | "N/A" => return Ok(()), // Not used - skip silently
         unknown => {
             if !args.silent {
                 eprintln!("Ignoring unknown access key '{}'", unknown);
