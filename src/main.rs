@@ -86,10 +86,7 @@ fn main_() -> std::io::Result<()> {
         .unwrap_or("0")
         .parse::<u32>()
         .map_err(|_| {
-            Error::new(
-                ErrorKind::Other,
-                format!("invalid cpunum, must be a valid non-negative integer."),
-            )
+            Error::other("invalid cpunum, must be a valid non-negative integer.".to_string())
         })?;
 
     let args = Args::new(
@@ -135,6 +132,6 @@ fn main_() -> std::io::Result<()> {
             device_header = Some(&device_header_str[..]);
         }
          */
-        process_device(&args, fd_in, &fname_in, &mut fd_out)
+        process_device(&args, fd_in, fname_in, &mut fd_out)
     }
 }
